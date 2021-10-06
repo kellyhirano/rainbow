@@ -1,5 +1,5 @@
 [Unit]
-Description=Run Pi FLP Weather Display
+Description=Run Pi Rainbow HAT Weather Display
 Wants=network.target
 
 [Service]
