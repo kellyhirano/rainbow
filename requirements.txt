@@ -1,3 +1,2 @@
 paho-mqtt~=1.5.0
 rainbowhat~=0.1.0
-python3-smbus~=4.1
