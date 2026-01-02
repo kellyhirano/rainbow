@@ -1,0 +1,14 @@
+[Unit]
+Description=Rainbow HAT Display (weather, energy, night modes)
+Wants=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 -u rainbow.py
+WorkingDirectory=/home/pi/rainbow
+StandardOutput=inherit
+StandardError=inherit
+Restart=always
+User=pi
+
+[Install]
+WantedBy=multi-user.target
