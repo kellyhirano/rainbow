@@ -21,6 +21,7 @@ MODE_NIGHT = 'night'
 # Global state
 g_mqtt_data = {}
 g_current_mode = MODE_WEATHER
+g_mqtt_connected = False
 
 
 def set_mode(mode):
@@ -68,34 +69,54 @@ def release_c(channel):
 
 def on_connect(client, userdata, flags, rc):
     """The callback for when the client receives a CONNACK from the server."""
-    print("Connected with result code " + str(rc))
+    global g_mqtt_connected
 
-    # Subscribe to all topics for both weather and energy modes
-    client.subscribe([
-        # Weather topics
-        ("weewx/sensor", 0),
-        ("purpleair/sensor", 0),
-        ("purpleair/last_hour", 0),
-        # Energy topics
-        ("rainforest/load", 0),
-        ("rainforest/hourly", 0),
-        ("rainforest/24h_compare", 0),
-        ("rainforest/daily", 0),
-        ("rainforest/peak", 0),
-    ])
+    if rc == 0:
+        print("Connected to MQTT broker")
+        g_mqtt_connected = True
+
+        # Subscribe to all topics for both weather and energy modes
+        client.subscribe([
+            # Weather topics
+            ("weewx/sensor", 0),
+            ("purpleair/sensor", 0),
+            ("purpleair/last_hour", 0),
+            # Energy topics
+            ("rainforest/load", 0),
+            ("rainforest/hourly", 0),
+            ("rainforest/24h_compare", 0),
+            ("rainforest/daily", 0),
+            ("rainforest/peak", 0),
+        ])
+    else:
+        print(f"Connection failed with code {rc}")
+        g_mqtt_connected = False
+
+
+def on_disconnect(client, userdata, rc):
+    """The callback for when the client disconnects from the server."""
+    global g_mqtt_connected
+    g_mqtt_connected = False
+    if rc != 0:
+        print(f"Unexpected MQTT disconnection (rc={rc}). Will auto-reconnect...")
+    else:
+        print("Disconnected from MQTT broker")
 
 
 def on_message(client, userdata, msg):
     """The callback for when a PUBLISH message is received from the server."""
     global g_mqtt_data
 
-    print(msg.topic + " -> " + str(msg.payload.decode('UTF-8')))
-    message_data = json.loads(str(msg.payload.decode('UTF-8')))
-
-    g_mqtt_data[msg.topic] = message_data
-
-    # Flash the rightmost decimal to show receipt of a message
-    flash_decimal()
+    try:
+        print(msg.topic + " -> " + str(msg.payload.decode('UTF-8')))
+        message_data = json.loads(str(msg.payload.decode('UTF-8')))
+        g_mqtt_data[msg.topic] = message_data
+        # Flash the rightmost decimal to show receipt of a message
+        flash_decimal()
+    except json.JSONDecodeError as e:
+        print(f"Failed to parse MQTT message on {msg.topic}: {e}")
+    except Exception as e:
+        print(f"Error processing MQTT message: {e}")
 
 
 def flash_decimal():
@@ -253,6 +274,20 @@ def is_night_hours():
     return current_hour < 7 or current_hour >= 23
 
 
+def display_disconnected():
+    """Show disconnection indicator on display."""
+    rainbowhat.display.clear()
+    rainbowhat.display.print_str("DISC")
+    rainbowhat.display.show()
+
+
+def display_error():
+    """Show error indicator on display."""
+    rainbowhat.display.clear()
+    rainbowhat.display.print_str("ERR")
+    rainbowhat.display.show()
+
+
 def main():
     """Main entry point."""
     global g_current_mode
@@ -265,6 +300,7 @@ def main():
 
     client = mqtt.Client()
     client.on_connect = on_connect
+    client.on_disconnect = on_disconnect
     client.on_message = on_message
 
     client.connect_async(mqtt_host, mqtt_host_port, 60)
@@ -274,17 +310,27 @@ def main():
     print("Press A for weather, B for energy, C for night mode")
 
     while True:
-        # Night mode takes precedence during night hours unless manually set
-        if g_current_mode == MODE_NIGHT or (g_current_mode != MODE_NIGHT and is_night_hours()):
-            if g_current_mode == MODE_NIGHT:
-                display_night()
-            else:
-                # Auto night mode during night hours, but allow button override
-                display_night()
-        elif g_current_mode == MODE_WEATHER:
-            display_weather()
-        elif g_current_mode == MODE_ENERGY:
-            display_energy()
+        try:
+            # Check connection status
+            if not g_mqtt_connected:
+                display_disconnected()
+                time.sleep(5)
+                continue
+
+            # Night mode takes precedence during night hours unless manually set
+            if g_current_mode == MODE_NIGHT or (g_current_mode != MODE_NIGHT and is_night_hours()):
+                if g_current_mode == MODE_NIGHT:
+                    display_night()
+                else:
+                    # Auto night mode during night hours, but allow button override
+                    display_night()
+            elif g_current_mode == MODE_WEATHER:
+                display_weather()
+            elif g_current_mode == MODE_ENERGY:
+                display_energy()
+        except Exception as e:
+            print(f"Display error: {e}")
+            display_error()
 
         time.sleep(2)
 
